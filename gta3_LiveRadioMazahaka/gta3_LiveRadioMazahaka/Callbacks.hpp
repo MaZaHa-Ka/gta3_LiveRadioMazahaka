@@ -135,7 +135,8 @@ namespace CB
 	}
 	bool __stdcall AllowDefaultRadio() // ++
 	{
-		return !LiveRadioPlayer::bIsLiveRadioModeActive;
+		//return !LiveRadioPlayer::bIsLiveRadioModeActive;
+		return LiveRadioPlayer::IsAllowedRetuneDefaultRadio();
 	}
 
 	void __stdcall OnSetInCar(CPed* pPed) // ++
@@ -164,10 +165,10 @@ namespace CB
 		if (res.need_print)
 		{
 			CRGBA col = res.bIslight_color ? res.light_col : res.dark_col;
-			DrawRadioName(res.station_name, col, res.need_bg_name_black, res.font);
+			DrawRadioName(res.str2print, col, res.need_bg_name_black, res.font);
 		}
 		return;
-		std::cout << "OnPrintRadioStation()" << "\n";
+		/*std::cout << "OnPrintRadioStation()" << "\n";
 		CRGBA dark_col = CRGBA(102, 133, 143, 255);
 		CRGBA light_col = CRGBA(147, 196, 211, 255);
 
@@ -185,7 +186,7 @@ namespace CB
 		else if (!press)
 		{
 			hold = false;
-		}
+		}*/
 	}
 
 
@@ -212,7 +213,20 @@ namespace CB
 		return res;
 #undef FRONTEND_AUDIO_MAX
 	}
-
+	void SetGameVolumePercent(int percent, bool bSFX = false)
+	{
+#define FRONTEND_AUDIO_MAX 127
+		if (percent < 0) { percent = 0; }
+		if (percent > 100) { percent = 100; }
+		int volume = (percent * FRONTEND_AUDIO_MAX) / 100;
+		if (bSFX) {
+			FrontEndMenuManager.m_nPrefsSfxVolume = volume;
+		}
+		else {
+			FrontEndMenuManager.m_nPrefsMusicVolume = volume;
+		}
+#undef FRONTEND_AUDIO_MAX
+	}
 
 
 

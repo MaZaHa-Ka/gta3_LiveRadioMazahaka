@@ -134,7 +134,7 @@ CheckWindowStateIsOpenedMaZaHaKa()
 }
 
 bool
-IsPlayerPlaying(bool check_fading = true, bool check_cutscene_borders = true, bool check_passanger = true)
+IsPlayerPlaying(bool check_fading = true, bool check_cutscene_borders = true, bool check_passanger = true, bool check_window = true)
 { // CPlayerInfo::MakePlayerSafe(bool toggle)
 	enum eGameState
 	{
@@ -159,7 +159,7 @@ IsPlayerPlaying(bool check_fading = true, bool check_cutscene_borders = true, bo
 	if (gGameState != eGameState::GS_PLAYING_GAME) { return false; }
 	// if (IsPlayerOnMission()) { return false; } // desp rando wanted
 //#ifdef MAZAHAKA_FIX_BACKGROUND_APP_NO_HOLD_MOUSE 
-	if (!CheckWindowStateIsOpenedMaZaHaKa()) { return false; }
+	if (check_window && (!CheckWindowStateIsOpenedMaZaHaKa())) { return false; }
 //#endif
 
 	// pad? check
@@ -202,6 +202,53 @@ IsPlayerPlaying(bool check_fading = true, bool check_cutscene_borders = true, bo
 	// m_pPed->m_bCanBeDamaged = false;
 	return true;
 }
+/*bool8 // not used
+RadioPlayerInCar()
+{
+	CPlayerPed* pPlayer = FindPlayerPed();
+	if (!FindPlayerVehicle() || !pPlayer) { return FALSE; }
+	if(!pPlayer->m_bInVehicle) { return FALSE; }
+
+	int32_t State = FindPlayerPed()->m_ePedState;
+
+	if (State == PED_DRAG_FROM_CAR || State == PED_EXIT_CAR || State == PED_ARRESTED)
+		return FALSE;
+
+	if (!FindPlayerVehicle())
+		return TRUE;
+
+	if (FindPlayerVehicle()->m_nState == STATUS_WRECKED)
+		return FALSE;
+
+	switch (FindPlayerVehicle()->m_nModelIndex) {
+	case MI_FIRETRUCK:
+	case MI_AMBULAN:
+	case MI_MRWHOOP:
+	case MI_PREDATOR:
+	case MI_TRAIN:
+	case MI_SPEEDER:
+	case MI_REEFER:
+	case MI_GHOST: return FALSE;
+	default: return TRUE;
+	}
+}*/
+
+bool8
+UsesPoliceRadio(CVehicle* veh) // false if default radio!!!
+{
+	if (!veh) { return false; }
+	switch (veh->m_nModelIndex)
+	{
+	case MI_FBICAR:
+	case MI_POLICE:
+	case MI_ENFORCER:
+	case MI_PREDATOR:
+	case MI_RHINO:
+	case MI_BARRACKS:
+		return TRUE;
+	}
+	return FALSE;
+}
 //------------------------------
 
 
@@ -221,7 +268,14 @@ M3UNodeMazahaka::M3UNodeMazahaka(const std::string &name, const std::string &url
 //------------------------- LIVE RADIO PLAYER
 // variables
 std::string LiveRadioPlayer::m_sRadioListPath;
-char LiveRadioPlayer::m_cKeySwitch;
+char LiveRadioPlayer::m_cKeySwitch = VK_F4;
+
+#ifdef VOLUME_RETUNE
+char LiveRadioPlayer::m_cVolRetuneKeySwitch = VK_SHIFT;
+int LiveRadioPlayer::m_iVolRetunePercent = 0;
+int LiveRadioPlayer::m_iVolRetunePercentStep = 0;
+#endif
+
 bool LiveRadioPlayer::m_bSwitcherHoldFlag;
 
 bool LiveRadioPlayer::bIsLRInitalize = false;
@@ -248,6 +302,13 @@ LiveRadioPlayer::InitLiveRadios(std::string sM3UPath)
 {
 	LiveRadioPlayer::m_sRadioListPath = sM3UPath;
 	LiveRadioPlayer::m_cKeySwitch = VK_F4;
+
+#ifdef VOLUME_RETUNE
+	LiveRadioPlayer::m_cVolRetuneKeySwitch = VK_SHIFT;
+	LiveRadioPlayer::m_iVolRetunePercent = GetFrontendAudioPercentVolume(false);
+	LiveRadioPlayer::m_iVolRetunePercentStep = 10; // %
+#endif
+
 	LiveRadioPlayer::m_bSwitcherHoldFlag = false;
 
 	// for restore
@@ -300,18 +361,53 @@ LiveRadioPlayer::InitLiveRadios(std::string sM3UPath)
 }
 
 void
-LiveRadioPlayer::RestartDrawCurrentRadioStation()
+LiveRadioPlayer::RestartDrawCurrentRadioStation(std::string new_str2print)
 {
-	if(!bIsLiveRadioModeActive) { return; }
-	LiveRadioState.station_name = live_radios[m_iCurrentRadioPos].name;
+	//if(!bIsLiveRadioModeActive) { return; }
+	//LiveRadioState.station_name = live_radios[m_iCurrentRadioPos].name; // in callers
+	LiveRadioState.str2print = new_str2print;
 	LiveRadioState.bIslight_color = false;
 	LiveRadioState.need_print = true;
 	LiveRadioState.start_time = std::chrono::steady_clock::now();
 }
 
 void
-LiveRadioPlayer::SetRetune(bool scrl_up_next)
+LiveRadioPlayer::ResetDefaultPrintRadioNameData()
 {
+	LR_cDisplay = 0; // frames to show
+	//LR_pCurrentStation = (uintptr_t)TheText.Get("FEA_FMN");
+}
+
+
+
+void
+LiveRadioPlayer::SetRetune(bool scrl_up_next)
+{// todo if shift ch volume + patch if shift on retune
+#ifdef VOLUME_RETUNE
+	bool bIsPressedVolumeHotkey = (GetAsyncKeyState(LiveRadioPlayer::m_cVolRetuneKeySwitch) & 0x8000);
+	if (bIsPressedVolumeHotkey)
+	{ // retune volume
+		LiveRadioPlayer::ResetDefaultPrintRadioNameData();
+		m_iVolRetunePercent = GetFrontendAudioPercentVolume(false);
+		int k = m_iVolRetunePercentStep;
+		m_iVolRetunePercent = ((m_iVolRetunePercent + k / 2) / k) * k;
+		bool retune = false; // if over limit no need setnewvol. or duplicate setnewnol in retune block
+		if (scrl_up_next && (m_iVolRetunePercent < 100)) { m_iVolRetunePercent = (m_iVolRetunePercent + m_iVolRetunePercentStep) > 100 ? 100 : m_iVolRetunePercent + m_iVolRetunePercentStep; retune = true; } // +
+		else if((!scrl_up_next) && ((m_iVolRetunePercent > 0))) { m_iVolRetunePercent = (m_iVolRetunePercent - m_iVolRetunePercentStep) < 0 ? 0 : m_iVolRetunePercent - m_iVolRetunePercentStep; retune = true; } // -
+		if (retune)
+		{
+			LiveRadioPlayer::SetNewVol(m_iVolRetunePercent, false);
+			LR_AudioManager_PlayOneShot(LR_AudioManager, (*(cAudioManager*)LR_AudioManager).m_nFrontEndEntity, LR_SOUND_FRONTEND_RADIO_CHANGE, 1.0f); // щелчёк переключателя
+		}
+		return;
+	}
+	else if (!LiveRadioPlayer::bIsLiveRadioModeActive)
+	{
+		LiveRadioState.need_print = false;
+	}
+#endif
+
+	// iа retune volume defined and activated we shouldn't be here
 	if(!bIsLiveRadioModeActive) { return; }
 	// printf("SetRetune: %d\n", scrl_up_next);
 
@@ -326,7 +422,7 @@ LiveRadioPlayer::SetRetune(bool scrl_up_next)
 
 	// Signal that a station change is needed
 	isStationChanging = true;
-	LiveRadioPlayer::RestartDrawCurrentRadioStation();
+	LiveRadioPlayer::RestartDrawCurrentRadioStation(live_radios[m_iCurrentRadioPos].name);
 
 	LR_AudioManager_PlayOneShot(LR_AudioManager, (*(cAudioManager*)LR_AudioManager).m_nFrontEndEntity, LR_SOUND_FRONTEND_RADIO_CHANGE, 1.0f); // щелчёк переключателя
 }
@@ -335,7 +431,7 @@ LiveRadioPlayer::CurrentStationStates
 LiveRadioPlayer::GetLiveRadioState()
 { // ondraw
 	// counter getter to disable draw if no retune
-	if(!bIsLiveRadioModeActive) { return LiveRadioState; }
+	//if(!bIsLiveRadioModeActive) { return LiveRadioState; }
 	// printf("GetLiveRadioState ondraw()!\n");
 	if(LiveRadioState.need_print) {
 		auto now = std::chrono::steady_clock::now();
@@ -448,14 +544,14 @@ LiveRadioPlayer::GetFilteredStations(const std::vector<M3UNodeMazahaka> &station
 }
 
 void
-LiveRadioPlayer::SwitchLiveRadio(bool mode, bool need_save_old_radio)
+LiveRadioPlayer::SwitchLiveRadio(bool mode, bool need_save_old_radio) // OnOFF
 {
 	if(mode) {
 		LiveRadioPlayer::TryMuteVehRadio(need_save_old_radio);
 		LiveRadioPlayer::isStationChanging = true;
 		// LiveRadioPlayer::bIsLiveRadioModeActive; // true
 		// LiveRadioPlayer::SwitchStation(m_iCurrentRadioPos); // lock frame
-		LiveRadioPlayer::RestartDrawCurrentRadioStation();
+		LiveRadioPlayer::RestartDrawCurrentRadioStation(live_radios[m_iCurrentRadioPos].name);
 		LR_Message("Live Radio Mode");
 	} else {
 		BassAudio::StopLiveRadio();
@@ -472,24 +568,31 @@ LiveRadioPlayer::OnTick() // in game+menu(if menu mute just now loaded radio bug
 	//if (!pPlayer) { return; }
 	if (FrontEndMenuManager.m_bGameNotLoaded) { return; }
 	bool ispress = (GetAsyncKeyState(LiveRadioPlayer::m_cKeySwitch) & 0x8000);
-	bool is_player_inveh = (pPlayer && pPlayer->m_bInVehicle);
-	bool allow_game_switch = IsPlayerPlaying(true, true, false) && is_player_inveh;
+	bool is_player_inveh = (pPlayer && pPlayer->m_bInVehicle && (!UsesPoliceRadio(pPlayer->m_pVehicle)));
+	bool allow_game_switch = IsPlayerPlaying(true, true, false, false) && is_player_inveh;
 	bool is_frontend_vol = !!GetFrontendAudioPercentVolume(false);
 
-	if(allow_game_switch) {
-		if(ispress && !LiveRadioPlayer::m_bSwitcherHoldFlag) {
-			if(is_frontend_vol) {
+	if (allow_game_switch) {
+		if (ispress && !LiveRadioPlayer::m_bSwitcherHoldFlag) {
+#ifdef NOT_ALLOW_SWITCH_TO_LR_IF_VOL_ZERO
+			if (is_frontend_vol) {
+#endif
 				LiveRadioPlayer::bIsLiveRadioModeActive = !LiveRadioPlayer::bIsLiveRadioModeActive;
-				if(LiveRadioPlayer::bIsLiveRadioModeActive) {
+				if (LiveRadioPlayer::bIsLiveRadioModeActive) {
 					SwitchLiveRadio(true);
-				} else {
+				}
+				else {
 					SwitchLiveRadio(false);
 				}
-			} else { // ! music
-				LR_Message("Music volume in settings is 0. Live radio turned off.");
+#ifdef NOT_ALLOW_SWITCH_TO_LR_IF_VOL_ZERO
 			}
+			else { // ! music
+				LR_Message("Music volume in settings is 0. Live radio turned off.", true);
+			}
+#endif
 			LiveRadioPlayer::m_bSwitcherHoldFlag = true;
-		} else if(!ispress) {
+		}
+		else if (!ispress) {
 			LiveRadioPlayer::m_bSwitcherHoldFlag = false;
 		}
 	}
@@ -602,12 +705,52 @@ LiveRadioPlayer::RestoreRadioInCar()
 		//(*(cMusicManager*)LR_MusicManager).m_nRadioInCar = LiveRadioPlayer::m_iOldRadioInCar;
 
 		if (LR_MusicManager_ChangeRadioChannel(LR_MusicManager)) { LR_MusicManager_ServiceTrack(LR_MusicManager); } // from cMusicManager::ServiceGameMode() // управление радио
-		//cDisplay = 60; // need?
+		//cDisplay = 60; // need? 30 vanila
 
 		// MusicManager.m_nRadioInCar = LiveRadioPlayer::iOldRadioStation;
 		// if(pVehicle) { pVehicle->m_nRadioStation = LiveRadioPlayer::iOldRadioStation; }
 	}
 }
+
+
+bool LiveRadioPlayer::IsAllowedRetuneDefaultRadio()
+{ // todo shift with no retune vol stop print curr default radio station name!!
+#ifdef VOLUME_RETUNE
+	bool bIsPressedVolumeHotkey = (GetAsyncKeyState(LiveRadioPlayer::m_cVolRetuneKeySwitch) & 0x8000);
+	return ((!LiveRadioPlayer::bIsLiveRadioModeActive) && !bIsPressedVolumeHotkey);
+#else
+	return !LiveRadioPlayer::bIsLiveRadioModeActive;
+#endif
+}
+
+void LiveRadioPlayer::SetNewVol(int percent_vol, bool bSFX)
+{
+#define FRONTEND_AUDIO_MAX 127
+	if (percent_vol < 0) { percent_vol = 0; }
+	if (percent_vol > 100) { percent_vol = 100; }
+
+	if (percent_vol < 0) { percent_vol = 0; }
+	if (percent_vol > 100) { percent_vol = 100; }
+	int volume = (percent_vol * FRONTEND_AUDIO_MAX) / 100;
+	std::string vol_str = "VOLUME: " + std::to_string(percent_vol);// +"\0"; // 100
+
+	if (bSFX)
+	{ //?
+		FrontEndMenuManager.m_nPrefsSfxVolume = volume;
+		((void(__stdcall*)(uint8_t volume))0x57A730)(volume); // cAudioManager::SetEffectsMasterVolume
+	}
+	else
+	{
+		FrontEndMenuManager.m_nPrefsMusicVolume = volume;
+		((void(__stdcall*)(uint8_t volume))0x57A750)(volume); // cAudioManager::SetMusicMasterVolume
+		if (LiveRadioPlayer::bIsLiveRadioModeActive) { BassAudio::SetLiveRadioPercentVolume(percent_vol); }
+		LiveRadioPlayer::RestartDrawCurrentRadioStation(vol_str);
+	}
+#undef FRONTEND_AUDIO_MAX
+}
+
+
+
 
 
 
@@ -642,7 +785,10 @@ void LiveRadioPlayer::OnSetInCar(CPed *pPed) // pPed MUST BE PLAYER
 {
 	CPlayerPed *pPlayer = FindPlayerPed();
 	// false try mute => no resave radiooff
-	if (pPlayer && (pPlayer == pPed) && LiveRadioPlayer::bIsLiveRadioModeActive) { LiveRadioPlayer::SwitchLiveRadio(true, false); }
+	if (pPlayer && (pPlayer == pPed) && LiveRadioPlayer::bIsLiveRadioModeActive)
+	{
+		if (pPlayer->m_bInVehicle && (!UsesPoliceRadio(pPlayer->m_pVehicle))) { LiveRadioPlayer::SwitchLiveRadio(true, false); }
+	}
 }
 
 void LiveRadioPlayer::OnSetOutCar(CPed* pPed) // nu

@@ -31,11 +31,14 @@ public:
 
 // TODO IF MAZAHAKA_EXTERNAL_URL_RADIO in sit car no start radio!!!!
 #define GTA3_RADIO_DARW_NAME_TIME 1.0f // 1.0f сек на серую и 1.0f сек на белую всего 2сек имя радио
+#define VOLUME_RETUNE // todo
+//#define NOT_ALLOW_SWITCH_TO_LR_IF_VOL_ZERO
+
 class LiveRadioPlayer
 {
 public:
 	struct CurrentStationStates { // TODO CHECK DRAW IF IN VEHICLE
-		std::string station_name;
+		std::string str2print;
 		bool bIslight_color;
 		bool need_bg_name_black;
 		bool need_print;
@@ -48,6 +51,13 @@ public:
 
 	static std::string m_sRadioListPath;
 	static char m_cKeySwitch;
+	//---vol
+#ifdef VOLUME_RETUNE
+	static char m_cVolRetuneKeySwitch;
+	static int m_iVolRetunePercent;
+	static int m_iVolRetunePercentStep;
+#endif
+	//-----
 	static bool m_bSwitcherHoldFlag;
 
 
@@ -82,12 +92,15 @@ public:
 
 	static void SwitchLiveRadio(bool mode, bool need_save_old_radio = true);
 	static void OnTick();
-	static void RestartDrawCurrentRadioStation();
+	static void RestartDrawCurrentRadioStation(std::string new_str2print);
+	static void ResetDefaultPrintRadioNameData(); // timers. pointers etc
 
 	// default radio funcs
 	// or on OnSetOutCar when bIsLiveRadioModeActive restore default radio
 	static void TryMuteVehRadio(bool need_save_old_radio = true); // false when sit in car with radio off and live on. rewrite oldradio on radio off
 	static void RestoreRadioInCar();
+	static bool IsAllowedRetuneDefaultRadio();
+	static void SetNewVol(int percent_vol, bool bSFX = false);
 
 	// helpers
 	static int GetFrontendAudioPercentVolume(bool bSFX = false);
